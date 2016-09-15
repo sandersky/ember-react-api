@@ -2,26 +2,36 @@ import Ember from 'ember'
 const {Component, typeOf} = Ember
 import PropTypeMixin from 'ember-prop-types'
 
-/**
- * Wire React's componentDidMount() into Ember component's life cycle
- */
-export function setupComponentDidMount () {
-  this.on('didInsertElement', () => {
-    if (typeOf(this.componentDidMount) === 'function') {
-      this.componentDidMount()
-    }
-  })
+export function fire (methodName, args) {
+  if (typeOf(this[methodName]) !== 'function') {
+    return
+  }
+
+  if (args) {
+    this[methodName](...args)
+  } else {
+    this[methodName]()
+  }
 }
 
 /**
- * Wire React's componentWillUnmount() into Ember component's life cycle
+ * Convert Ember attributes object to format of React properties
+ * @param {EmberAttrs} attrs - Ember attributes (from didReceiveAttrs hook)
+ * @returns {ReactProps} Ember attributes as React properties
  */
-export function setupComponentWillUnmount () {
-  this.on('willDestroyElement', () => {
-    if (typeOf(this.componentWillUnmount) === 'function') {
-      this.componentWillUnmount()
-    }
-  })
+export function getPropsFromAttrs (attrs) {
+  const props = {}
+
+  if (typeOf(attrs) !== 'object') {
+    return props
+  }
+
+  Object.keys(attrs)
+    .forEach((key) => {
+      props[key] = attrs[key].value
+    })
+
+  return props
 }
 
 /**
@@ -33,9 +43,6 @@ export function setupComponentWillUnmount () {
  *
  * TODO: Implement the following React methods
  *
- *       - componentDidUpdate()
- *       - componentWillReceiveProps()
- *       - componentWillUpdate()
  *       - getInitialState()
  *       - setState()
  *       - shouldComponentUpdate()
@@ -44,11 +51,41 @@ export default Component.extend(PropTypeMixin, {
   init () {
     this._super()
 
-    setupComponentDidMount.call(this)
-    setupComponentWillUnmount.call(this)
+    let nextProps, prevProps
+    let nextState = {}
+    let prevState = {}
 
-    if (typeOf(this.componentWillMount) === 'function') {
-      this.componentWillMount()
+    this.on('didUpdateAttrs', ({newAttrs, oldAttrs}) => {
+      nextProps = getPropsFromAttrs(newAttrs)
+      prevProps = getPropsFromAttrs(oldAttrs)
+
+      fire.call(this, 'componentWillReceiveProps', [nextProps])
+    })
+
+    const didReceiveAttrs = ({newAttrs, oldAttrs}) => {
+      nextProps = getPropsFromAttrs(newAttrs)
+      prevProps = getPropsFromAttrs(oldAttrs)
     }
+
+    this.on('didReceiveAttrs', didReceiveAttrs)
+
+    this.on('didInsertElement', () => {
+      this.off('didReceiveAttrs', didReceiveAttrs)
+      fire.call(this, 'componentDidMount')
+    })
+
+    this.on('willUpdate', () => {
+      fire.call(this, 'componentWillUpdate', [nextProps, nextState])
+    })
+
+    this.on('didUpdate', () => {
+      fire.call(this, 'componentDidUpdate', [prevProps, prevState])
+    })
+
+    this.on('willDestroyElement', () => {
+      fire.call(this, 'componentWillUnmount')
+    })
+
+    fire.call(this, 'componentWillMount')
   }
 })
